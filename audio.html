@@ -3,131 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>10s Voice Recorder</title>
+    <title>Urinfo Dashboard</title>
     <style>
-        :root {
-            --primary: #2563eb;
-            --success: #16a34a;
-            --danger: #dc2626;
+        body {
+            background: #0a0c10; color: #e8eaf0; font-family: sans-serif;
+            display: flex; flex-direction: column; align-items: center; padding: 50px;
         }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-            display: flex; flex-direction: column; align-items: center; justify-content: center; 
-            height: 100vh; margin: 0; background-color: #f8fafc; 
+        .card {
+            background: #111318; border: 1px solid #1e2128; padding: 30px;
+            border-radius: 20px; text-align: center; width: 250px; margin-top: 20px;
         }
-        .container {
-            background: white; padding: 2rem; border-radius: 1rem;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); text-align: center; width: 90%; max-width: 400px;
-        }
-        #status { margin: 20px 0; font-weight: 600; color: #475569; }
-        .timer { font-size: 2rem; margin-bottom: 20px; color: var(--primary); display: none; }
-        
+        .value { font-size: 3rem; font-weight: bold; color: #00e5b0; }
         button {
-            width: 100%; padding: 12px; font-size: 1rem; font-weight: 600;
-            cursor: pointer; border-radius: 0.5rem; border: none; transition: all 0.2s;
-            margin-bottom: 10px;
+            padding: 15px 30px; border-radius: 10px; border: 1px solid #00e5b0;
+            background: transparent; color: #00e5b0; cursor: pointer; font-weight: bold;
         }
-        #startBtn { background-color: var(--primary); color: white; }
-        #startBtn:disabled { background-color: #cbd5e1; cursor: not-allowed; }
-        
-        #downloadBtn { 
-            background-color: var(--success); color: white; display: none; 
-            text-decoration: none; align-items: center; justify-content: center;
-        }
+        button:hover { background: rgba(0,229,176,0.1); }
+        #log { margin-top: 20px; font-size: 0.8rem; color: #4a5068; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>Voice Recorder</h2>
-    <div id="status">Tap Start to record 10s</div>
-    <div id="timer" class="timer">10s</div>
-    
-    <button id="startBtn">Start Recording</button>
-    <a id="downloadBtn">Download Recording (.wav)</a>
-</div>
+    <h1>Urinfo BLE</h1>
+    <button id="btnConnect" onclick="toggleConnect()">Cihaza Bağlan</button>
+
+    <div class="card">
+        <div style="font-size: 0.8rem; color: #4a5068;">PİL SEVİYESİ</div>
+        <div class="value"><span id="valBattery">--</span>%</div>
+    </div>
+
+    <div id="log">Hazır. Bağlanmak için butona basın.</div>
 
 <script>
-    let mediaRecorder;
-    let audioChunks = [];
-    let countdown;
+    const SERVICE_UUID = '11111111-1111-1111-1111-111111111110';
+    const UUID_BATTERY = '11111111-1111-1111-2222-111111111112';
 
-    const startBtn = document.getElementById('startBtn');
-    const downloadBtn = document.getElementById('downloadBtn');
-    const status = document.getElementById('status');
-    const timerDisplay = document.getElementById('timer');
+    let bleDevice = null;
 
-    startBtn.addEventListener('click', async () => {
-        // Reset UI
-        audioChunks = [];
-        downloadBtn.style.display = "none";
-        
+    function log(msg) {
+        document.getElementById('log').textContent = msg;
+    }
+
+    async function toggleConnect() {
         try {
-            // Check if browser supports getUserMedia
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error("Browser not supported or Not HTTPS");
-            }
+            log("Cihaz aranıyor (Urinfo)...");
+            bleDevice = await navigator.bluetooth.requestDevice({
+                filters: [{ name: 'Urinfo' }],
+                optionalServices: [SERVICE_UUID]
+            });
 
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            
-            // Standard MediaRecorder (Android usually uses code/opus)
-            mediaRecorder = new MediaRecorder(stream);
-            
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunks.push(event.data);
-                }
-            };
+            const server = await bleDevice.gatt.connect();
+            const service = await server.getPrimaryService(SERVICE_UUID);
+            const batteryChar = await service.getCharacteristic(UUID_BATTERY);
 
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                const audioUrl = URL.createObjectURL(audioBlob);
-                
-                downloadBtn.href = audioUrl;
-                downloadBtn.download = `recording_${Date.now()}.wav`;
-                downloadBtn.style.display = "flex";
-                
-                status.innerText = "Recording saved!";
-                timerDisplay.style.display = "none";
-                startBtn.disabled = false;
+            log("Bağlantı başarılı!");
 
-                // Cleanup: stop the mic hardware
-                stream.getTracks().forEach(track => track.stop());
-            };
+            // Bildirimleri başlat
+            await batteryChar.startNotifications();
+            batteryChar.addEventListener('characteristicvaluechanged', (event) => {
+                const value = new TextDecoder().decode(event.target.value);
+                document.getElementById('valBattery').textContent = value;
+            });
 
-            // Start Recording
-            mediaRecorder.start();
-            startBtn.disabled = true;
-            status.innerText = "Recording...";
-            
-            // Start 10s Visual Timer
-            let timeLeft = 10;
-            timerDisplay.innerText = timeLeft + "s";
-            timerDisplay.style.display = "block";
-            
-            countdown = setInterval(() => {
-                timeLeft--;
-                timerDisplay.innerText = timeLeft + "s";
-                if (timeLeft <= 0) clearInterval(countdown);
-            }, 1000);
-
-            // Stop automatically after 10 seconds
-            setTimeout(() => {
-                if (mediaRecorder.state === "recording") {
-                    mediaRecorder.stop();
-                }
-            }, 10000);
-
-        } catch (err) {
-            console.error(err);
-            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                status.innerText = "Error: Mic access denied. Check site permissions.";
-            } else {
-                status.innerText = "Error: Ensure you are using HTTPS.";
-            }
+        } catch (error) {
+            log("Hata: " + error.message);
         }
-    });
+    }
 </script>
-
 </body>
 </html>
