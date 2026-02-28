@@ -74,10 +74,16 @@
             document.getElementById('btnConnect').textContent = "Disconnect";
 
             // Start Notifications
-            await batteryChar.startNotifications();
+           await batteryChar.startNotifications();
             batteryChar.addEventListener('characteristicvaluechanged', (event) => {
-                const value = new TextDecoder().decode(event.target.value);
-                document.getElementById('valBattery').textContent = value;
+                // 1. Decode the bytes
+                let rawValue = new TextDecoder().decode(event.target.value);
+                
+                // 2. Trim any hidden whitespace or null characters
+                let cleanValue = rawValue.trim().replace(/\0/g, ''); 
+                
+                // 3. Update the UI
+                document.getElementById('valBattery').textContent = cleanValue;
             });
 
         } catch (error) {
@@ -88,3 +94,4 @@
 </script>
 </body>
 </html>
+
