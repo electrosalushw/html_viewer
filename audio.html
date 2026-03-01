@@ -3,19 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Urinfo Stable Dashboard + Charts</title>
+    <title>Urinfo Stable Dashboard + 3 Charts</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root { --bg: #0d1117; --card: #161b22; --accent: #58a6ff; --text: #c9d1d9; --chart-bg: #1c2128; }
+        :root { --bg: #0d1117; --card: #161b22; --accent: #39d353; --text: #c9d1d9; --chart-bg: #1c2128; }
         body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; width: 100%; max-width: 900px; margin-bottom: 20px; }
         .card { background: var(--card); border: 1px solid #30363d; padding: 15px; border-radius: 10px; text-align: center; }
-        .value { font-size: 1.5rem; font-weight: bold; color: #39d353; }
+        .value { font-size: 1.5rem; font-weight: bold; color: var(--accent); }
         .label { font-size: 0.65rem; color: #8b949e; text-transform: uppercase; margin-bottom: 5px; }
-        .chart-container { width: 100%; max-width: 900px; background: var(--chart-bg); border: 1px solid #30363d; border-radius: 10px; padding: 15px; margin-bottom: 20px; box-sizing: border-box; }
+        .chart-container { width: 100%; max-width: 900px; background: var(--chart-bg); border: 1px solid #30363d; border-radius: 10px; padding: 15px; margin-bottom: 15px; box-sizing: border-box; }
         button { padding: 15px 30px; background: #238636; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 20px; }
-        #debug { width: 100%; max-width: 900px; height: 100px; background: black; color: #39d353; font-family: monospace; font-size: 0.75rem; padding: 10px; overflow-y: scroll; border-radius: 5px; border: 1px solid #333; }
-        canvas { max-height: 250px; }
+        #debug { width: 100%; max-width: 900px; height: 120px; background: black; color: #39d353; font-family: monospace; font-size: 0.75rem; padding: 10px; overflow-y: scroll; border-radius: 5px; border: 1px solid #333; }
+        canvas { max-height: 180px; }
     </style>
 </head>
 <body>
@@ -34,13 +34,9 @@
         <div class="card"><div class="label">Detect</div><div class="value" id="valDDist">--</div></div>
     </div>
 
-    <div class="chart-container">
-        <canvas id="luxChart"></canvas>
-    </div>
-
-    <div class="chart-container">
-        <canvas id="pirChart"></canvas>
-    </div>
+    <div class="chart-container"><canvas id="luxChart"></canvas></div>
+    <div class="chart-container"><canvas id="pirChart"></canvas></div>
+    <div class="chart-container"><canvas id="detChart"></canvas></div>
 
     <div id="debug">System Log: Ready...</div>
 
@@ -57,28 +53,18 @@
         'valDDist': '11111111-1111-1111-2222-111111111119'
     };
 
-    // --- Chart Initialization ---
-    const chartConfig = (label, color) => ({
+    // --- Chart Setup ---
+    const chartConf = (name, col) => ({
         type: 'line',
-        data: { labels: [], datasets: [{ label: label, data: [], borderColor: color, tension: 0.3, fill: false }] },
-        options: { responsive: true, scales: { x: { display: false }, y: { beginAtZero: true } } }
+        data: { labels: [], datasets: [{ label: name, data: [], borderColor: col, tension: 0.2, pointRadius: 0 }] },
+        options: { responsive: true, scales: { x: { display: false }, y: { beginAtZero: true } }, animation: false }
     });
 
-    const luxCtx = document.getElementById('luxChart').getContext('2d');
-    const pirCtx = document.getElementById('pirChart').getContext('2d');
-    const luxChart = new Chart(luxCtx, chartConfig('Ambient Light (Lux)', '#ffcc00'));
-    const pirChart = new Chart(pirCtx, chartConfig('PIR Activity (0-4095)', '#58a6ff'));
-
-    function updateChart(chart, newValue) {
-        const maxPoints = 30; 
-        chart.data.labels.push("");
-        chart.data.datasets[0].data.push(newValue);
-        if (chart.data.labels.length > maxPoints) {
-            chart.data.labels.shift();
-            chart.data.datasets[0].data.shift();
-        }
-        chart.update('none'); // Update without animation for performance
-    }
+    const charts = {
+        valLux: new Chart(document.getElementById('luxChart').getContext('2d'), chartConf('Light Level (Lux)', '#ffcc00')),
+        valPir: new Chart(document.getElementById('pirChart').getContext('2d'), chartConf('PIR Movement', '#58a6ff')),
+        valDDist: new Chart(document.getElementById('detChart').getContext('2d'), chartConf('Radar Detection Dist', '#ff4d4d'))
+    };
 
     function log(msg) {
         const d = document.getElementById('debug');
@@ -95,37 +81,45 @@
             });
 
             const server = await device.gatt.connect();
+            log("Connected. Waiting for stability...");
+            await new Promise(r => setTimeout(r, 500)); 
+
             const service = await server.getPrimaryService(SERVICE_UUID);
 
             for (let [id, uuid] of Object.entries(CHARS)) {
                 try {
-                    log(`Linking ${id}...`);
+                    log(`Linking characteristic: ${id}...`);
                     const char = await service.getCharacteristic(uuid);
-                    await char.startNotifications();
-
-                    const handleData = (DataView) => {
-                        let raw = new TextDecoder().decode(DataView);
-                        let clean = raw.replace(/[^0-9.]/g, '');
-                        if (!clean) return;
-                        
-                        document.getElementById(id).innerText = clean;
-
-                        // Route data to charts
-                        if (id === 'valLux') updateChart(luxChart, parseFloat(clean));
-                        if (id === 'valPir') updateChart(pirChart, parseFloat(clean));
+                    
+                    const updateUI = (dataView) => {
+                        let text = new TextDecoder().decode(dataView);
+                        let clean = text.replace(/[^0-9.]/g, '');
+                        if (clean) {
+                            document.getElementById(id).innerText = clean;
+                            if (charts[id]) {
+                                charts[id].data.datasets[0].data.push(parseFloat(clean));
+                                if (charts[id].data.datasets[0].data.length > 40) charts[id].data.datasets[0].data.shift();
+                                charts[id].update();
+                            }
+                        }
                     };
 
-                    char.addEventListener('characteristicvaluechanged', (e) => handleData(e.target.value));
+                    // Try to start notifications
+                    await char.startNotifications();
+                    char.addEventListener('characteristicvaluechanged', e => updateUI(e.target.value));
                     
-                    // Initial Read
-                    const initData = await char.readValue();
-                    handleData(initData);
+                    // Force an initial read
+                    const initVal = await char.readValue();
+                    updateUI(initVal);
 
-                    await new Promise(r => setTimeout(r, 150)); 
-                } catch (e) { log(`Error on ${id}: ${e.message}`); }
+                    // DELAY: Essential for multi-characteristic ESP32 stability
+                    await new Promise(r => setTimeout(r, 300)); 
+                } catch (e) {
+                    log(`Failed to link ${id}: ${e.message}`);
+                }
             }
-            log("All sensors connected and charting.");
-        } catch (err) { log(`FATAL ERROR: ${err.message}`); }
+            log("System fully initialized.");
+        } catch (err) { log(`Connection Error: ${err.message}`); }
     }
 </script>
 </body>
