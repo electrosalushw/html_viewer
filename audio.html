@@ -73,64 +73,49 @@
         'valPir': '11111111-1111-1111-2222-111111111114'
     };
 
-    let actionChar = null; // Global reference for writing commands
+    let actionChar = null;
 
-    // --- Bluetooth Communication ---
     async function sendCommand(cmd) {
-        if (!actionChar) {
-            log("Error: Device not connected");
-            return;
-        }
+        if (!actionChar) { log("Error: Not connected"); return; }
         try {
-            const encoder = new TextEncoder();
-            await actionChar.writeValue(encoder.encode(cmd));
-            log(`Sent Command: ${cmd}`);
-        } catch (e) {
-            log(`Send Error: ${e.message}`);
-        }
+            await actionChar.writeValue(new TextEncoder().encode(cmd));
+            log(`Sent: ${cmd}`);
+        } catch (e) { log(`Error: ${e.message}`); }
     }
 
     function sendOTA() {
         const ver = document.getElementById('otaVersion').value || "1.0.0";
         const ssid = document.getElementById('wifiName').value;
         const pass = document.getElementById('wifiPass').value;
-
-        if (!ssid || !pass) {
-            alert("Please enter WiFi Name and Password");
-            return;
-        }
-
-        const otaCmd = `Com;OTA;${ver};${ssid};${pass}`;
-        sendCommand(otaCmd);
+        if (!ssid || !pass) { alert("WiFi info missing!"); return; }
+        sendCommand(`Com;OTA;${ver};${ssid};${pass}`);
     }
 
-    // --- Existing Logic (Charts & Handlers) ---
-    const chartConfig = (label, color) => ({
+    const chartConfig = (l, c) => ({
         type: 'line',
-        data: { labels: [], datasets: [{ label: label, data: [], borderColor: color, tension: 0.3, fill: false, pointRadius: 0 }] },
+        data: { labels: [], datasets: [{ label: l, data: [], borderColor: c, tension: 0.3, fill: false, pointRadius: 0 }] },
         options: { responsive: true, animation: false, scales: { x: { display: false }, y: { beginAtZero: true } } }
     });
 
-    const luxChart = new Chart(document.getElementById('luxChart').getContext('2d'), chartConfig('Ambient Light (Lux)', '#ffcc00'));
-    const pirChart = new Chart(document.getElementById('pirChart').getContext('2d'), chartConfig('PIR Activity', '#58a6ff'));
+    const luxChart = new Chart(document.getElementById('luxChart').getContext('2d'), chartConfig('Lux', '#ffcc00'));
+    const pirChart = new Chart(document.getElementById('pirChart').getContext('2d'), chartConfig('PIR', '#58a6ff'));
 
-    function updateChart(chart, newValue) {
+    function updateChart(chart, val) {
         chart.data.labels.push('');
-        chart.data.datasets[0].data.push(newValue);
+        chart.data.datasets[0].data.push(val);
         if (chart.data.labels.length > 30) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
         chart.update('none');
     }
 
-    function log(msg) {
+    function log(m) {
         const d = document.getElementById('debug');
-        d.innerHTML += `> ${msg}<br>`;
+        d.innerHTML += `> ${m}<br>`;
         d.scrollTop = d.scrollHeight;
     }
 
     function handleSingle(id, buf) {
-        const raw = new TextDecoder().decode(buf);
-        const clean = raw.replace(/[^0-9.\-]/g, '');
-        if (clean === '' || clean === '-') return;
+        const clean = new TextDecoder().decode(buf).replace(/[^0-9.\-]/g, '');
+        if (!clean) return;
         document.getElementById(id).innerText = clean;
         if (id === 'valLux') updateChart(luxChart, parseFloat(clean));
         if (id === 'valPir') updateChart(pirChart, parseFloat(clean));
@@ -138,12 +123,11 @@
 
     const MMWAVE_IDS = ['valMDist', 'valMEnrg', 'valSDist', 'valSEnrg', 'valDDist'];
     function handleMmwave(buf) {
-        const raw = new TextDecoder().decode(buf);
-        const parts = raw.split(',');
+        const parts = new TextDecoder().decode(buf).split(',');
         if (parts.length !== MMWAVE_IDS.length) return;
-        parts.forEach((val, i) => {
-            const clean = val.replace(/[^0-9.\-]/g, '');
-            if (clean !== '' && clean !== '-') document.getElementById(MMWAVE_IDS[i]).innerText = clean;
+        parts.forEach((v, i) => {
+            const clean = v.replace(/[^0-9.\-]/g, '');
+            if (clean) document.getElementById(MMWAVE_IDS[i]).innerText = clean;
         });
     }
 
@@ -152,40 +136,42 @@
             const char = await service.getCharacteristic(uuid);
             char.addEventListener('characteristicvaluechanged', (e) => handler(e.target.value));
             await char.startNotifications();
-            log(`✓ Subscribed: ${id}`);
-            const initVal = await char.readValue();
-            handler(initVal);
-        } catch (e) { log(`✗ Failed: ${id}`); }
+            log(`✓ ${id}`);
+            const init = await char.readValue();
+            handler(init);
+        } catch (e) { log(`✗ ${id}`); }
     }
 
     async function startBLE() {
         const btn = document.getElementById('btnConnect');
         btn.disabled = true;
-        btn.innerText = 'Connecting...';
+        btn.innerText = 'Searching...';
 
         try {
+            // FIX: Ensure filters and optionalServices are clearly defined
+            log("Opening Bluetooth selector...");
             const device = await navigator.bluetooth.requestDevice({
-            filters: [{ namePrefix: 'Urinfo_' }], // This catches Urinfo_AABBCCDDEEFF
-            optionalServices: [SERVICE_UUID]
-        });
+                filters: [{ namePrefix: 'Urinfo_' }],
+                optionalServices: [SERVICE_UUID]
+            });
 
+            log(`Connecting to ${device.name}...`);
             const server = await device.gatt.connect();
             const service = await server.getPrimaryService(SERVICE_UUID);
             
-            // Get Action Characteristic for Writing
             actionChar = await service.getCharacteristic(UUID_ACTION);
-            log("✓ Command Channel Ready");
+            log("✓ Command Link Ready");
 
             for (const [id, uuid] of Object.entries(SINGLE_CHARS)) {
                 await subscribeChar(service, id, uuid, (buf) => handleSingle(id, buf));
-                await new Promise(r => setTimeout(r, 100));
+                await new Promise(r => setTimeout(r, 150)); // Slightly longer delay for stability
             }
 
             await subscribeChar(service, 'mmWave', UUID_MMWAVE, handleMmwave);
 
             btn.innerText = 'Connected ✓';
             device.addEventListener('gattserverdisconnected', () => {
-                log('Disconnected');
+                log('Device Lost');
                 actionChar = null;
                 btn.disabled = false;
                 btn.innerText = 'Connect Device';
@@ -200,4 +186,3 @@
 </script>
 </body>
 </html>
-
