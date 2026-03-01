@@ -3,16 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Urinfo Stable Dashboard</title>
+    <title>Urinfo Stable Dashboard + Charts</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root { --bg: #0d1117; --card: #161b22; --accent: #58a6ff; --text: #c9d1d9; }
+        :root { --bg: #0d1117; --card: #161b22; --accent: #58a6ff; --text: #c9d1d9; --chart-bg: #1c2128; }
         body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; width: 100%; max-width: 800px; }
-        .card { background: var(--card); border: 1px solid #30363d; padding: 20px; border-radius: 10px; text-align: center; }
-        .value { font-size: 2rem; font-weight: bold; color: #39d353; }
-        .label { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; margin-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; width: 100%; max-width: 900px; margin-bottom: 20px; }
+        .card { background: var(--card); border: 1px solid #30363d; padding: 15px; border-radius: 10px; text-align: center; }
+        .value { font-size: 1.5rem; font-weight: bold; color: #39d353; }
+        .label { font-size: 0.65rem; color: #8b949e; text-transform: uppercase; margin-bottom: 5px; }
+        .chart-container { width: 100%; max-width: 900px; background: var(--chart-bg); border: 1px solid #30363d; border-radius: 10px; padding: 15px; margin-bottom: 20px; box-sizing: border-box; }
         button { padding: 15px 30px; background: #238636; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 20px; }
-        #debug { width: 100%; max-width: 800px; height: 150px; background: black; color: #39d353; font-family: monospace; font-size: 0.8rem; padding: 10px; overflow-y: scroll; margin-top: 20px; border-radius: 5px; border: 1px solid #333; }
+        #debug { width: 100%; max-width: 900px; height: 100px; background: black; color: #39d353; font-family: monospace; font-size: 0.75rem; padding: 10px; overflow-y: scroll; border-radius: 5px; border: 1px solid #333; }
+        canvas { max-height: 250px; }
     </style>
 </head>
 <body>
@@ -31,10 +34,17 @@
         <div class="card"><div class="label">Detect</div><div class="value" id="valDDist">--</div></div>
     </div>
 
+    <div class="chart-container">
+        <canvas id="luxChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="pirChart"></canvas>
+    </div>
+
     <div id="debug">System Log: Ready...</div>
 
 <script>
-    // CRITICAL: Ensure these match your ESP32 code EXACTLY
     const SERVICE_UUID = '11111111-1111-1111-1111-111111111110';
     const CHARS = {
         'valBat':   '11111111-1111-1111-2222-111111111112',
@@ -46,6 +56,29 @@
         'valSEnrg': '11111111-1111-1111-2222-111111111118',
         'valDDist': '11111111-1111-1111-2222-111111111119'
     };
+
+    // --- Chart Initialization ---
+    const chartConfig = (label, color) => ({
+        type: 'line',
+        data: { labels: [], datasets: [{ label: label, data: [], borderColor: color, tension: 0.3, fill: false }] },
+        options: { responsive: true, scales: { x: { display: false }, y: { beginAtZero: true } } }
+    });
+
+    const luxCtx = document.getElementById('luxChart').getContext('2d');
+    const pirCtx = document.getElementById('pirChart').getContext('2d');
+    const luxChart = new Chart(luxCtx, chartConfig('Ambient Light (Lux)', '#ffcc00'));
+    const pirChart = new Chart(pirCtx, chartConfig('PIR Activity (0-4095)', '#58a6ff'));
+
+    function updateChart(chart, newValue) {
+        const maxPoints = 30; 
+        chart.data.labels.push("");
+        chart.data.datasets[0].data.push(newValue);
+        if (chart.data.labels.length > maxPoints) {
+            chart.data.labels.shift();
+            chart.data.datasets[0].data.shift();
+        }
+        chart.update('none'); // Update without animation for performance
+    }
 
     function log(msg) {
         const d = document.getElementById('debug');
@@ -61,42 +94,38 @@
                 optionalServices: [SERVICE_UUID]
             });
 
-            log("Connecting...");
             const server = await device.gatt.connect();
-
-            log("Fetching Service...");
             const service = await server.getPrimaryService(SERVICE_UUID);
 
-            // Using a loop with a small delay to prevent GATT collision
             for (let [id, uuid] of Object.entries(CHARS)) {
                 try {
                     log(`Linking ${id}...`);
                     const char = await service.getCharacteristic(uuid);
-                    
-                    // Start notifications
                     await char.startNotifications();
-                    char.addEventListener('characteristicvaluechanged', (e) => {
-                        let raw = new TextDecoder().decode(e.target.value);
-                        // Strips everything except numbers and dots
+
+                    const handleData = (DataView) => {
+                        let raw = new TextDecoder().decode(DataView);
                         let clean = raw.replace(/[^0-9.]/g, '');
+                        if (!clean) return;
+                        
                         document.getElementById(id).innerText = clean;
-                    });
 
-                    // Immediate initial read
+                        // Route data to charts
+                        if (id === 'valLux') updateChart(luxChart, parseFloat(clean));
+                        if (id === 'valPir') updateChart(pirChart, parseFloat(clean));
+                    };
+
+                    char.addEventListener('characteristicvaluechanged', (e) => handleData(e.target.value));
+                    
+                    // Initial Read
                     const initData = await char.readValue();
-                    let initVal = new TextDecoder().decode(initData).replace(/[^0-9.]/g, '');
-                    document.getElementById(id).innerText = initVal;
+                    handleData(initData);
 
-                    // Small pause between characteristics helps stability
                     await new Promise(r => setTimeout(r, 150)); 
-                } catch (e) {
-                    log(`Error on ${id}: ${e.message}`);
-                }
+                } catch (e) { log(`Error on ${id}: ${e.message}`); }
             }
-            log("Done! All sensors connected.");
-        } catch (err) {
-            log(`FATAL ERROR: ${err.message}`);
-        }
+            log("All sensors connected and charting.");
+        } catch (err) { log(`FATAL ERROR: ${err.message}`); }
     }
 </script>
 </body>
