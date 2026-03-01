@@ -42,16 +42,18 @@
 
 <script>
     const SERVICE_UUID = '11111111-1111-1111-1111-111111111110';
-    const CHARS = {
-        'valBat':   '11111111-1111-1111-2222-111111111112',
-        'valLux':   '11111111-1111-1111-2222-111111111113',
-        'valPir':   '11111111-1111-1111-2222-111111111114',
-        'valMDist': '11111111-1111-1111-2222-111111111115',
-        'valMEnrg': '11111111-1111-1111-2222-111111111116',
-        'valSDist': '11111111-1111-1111-2222-111111111117',
-        'valSEnrg': '11111111-1111-1111-2222-111111111118',
-        'valDDist': '11111111-1111-1111-2222-111111111119'
+
+    // Only 4 characteristics now — mmWave is a single CSV char
+    const SINGLE_CHARS = {
+        'valBat': '11111111-1111-1111-2222-111111111112',
+        'valLux': '11111111-1111-1111-2222-111111111113',
+        'valPir': '11111111-1111-1111-2222-111111111114'
     };
+    const UUID_MMWAVE = '11111111-1111-1111-2222-111111111115';
+
+    // mmWave CSV field order must match ble.cpp notifyAll():
+    // "movingDist,movingEnergy,staticDist,staticEnergy,detectionDist"
+    const MMWAVE_IDS = ['valMDist', 'valMEnrg', 'valSDist', 'valSEnrg', 'valDDist'];
 
     // --- Charts ---
     const chartConfig = (label, color) => ({
@@ -90,27 +92,57 @@
         chart.update('none');
     }
 
-    // --- Logging ---
     function log(msg) {
         const d = document.getElementById('debug');
         d.innerHTML += `> ${msg}<br>`;
         d.scrollTop = d.scrollHeight;
     }
 
-    // --- Data Handler ---
-    function handleData(id, buf) {
+    // Handler for single-value characteristics (Battery, Lux, PIR)
+    function handleSingle(id, buf) {
         const raw = new TextDecoder().decode(buf);
-        // Allow digits, dot, and minus (for negative values)
         const clean = raw.replace(/[^0-9.\-]/g, '');
         if (clean === '' || clean === '-') return;
-
         document.getElementById(id).innerText = clean;
-
         if (id === 'valLux') updateChart(luxChart, parseFloat(clean));
         if (id === 'valPir') updateChart(pirChart, parseFloat(clean));
     }
 
-    // --- BLE Connect ---
+    // Handler for mmWave CSV characteristic
+    // Expected format: "movingDist,movingEnergy,staticDist,staticEnergy,detectionDist"
+    function handleMmwave(buf) {
+        const raw = new TextDecoder().decode(buf);
+        log(`mmWave raw: ${raw}`);
+        const parts = raw.split(',');
+        if (parts.length !== MMWAVE_IDS.length) {
+            log(`mmWave parse error: expected ${MMWAVE_IDS.length} fields, got ${parts.length}`);
+            return;
+        }
+        parts.forEach((val, i) => {
+            const clean = val.replace(/[^0-9.\-]/g, '');
+            if (clean !== '' && clean !== '-') {
+                document.getElementById(MMWAVE_IDS[i]).innerText = clean;
+            }
+        });
+    }
+
+    async function subscribeChar(service, id, uuid, handler) {
+        try {
+            const char = await service.getCharacteristic(uuid);
+            char.addEventListener('characteristicvaluechanged', (e) => handler(e.target.value));
+            await char.startNotifications();
+            log(`✓ Subscribed: ${id}`);
+            try {
+                const initVal = await char.readValue();
+                handler(initVal);
+            } catch (e) {
+                log(`${id}: no initial read (${e.message})`);
+            }
+        } catch (e) {
+            log(`✗ Failed: ${id} — ${e.message}`);
+        }
+    }
+
     async function startBLE() {
         const btn = document.getElementById('btnConnect');
         btn.disabled = true;
@@ -128,39 +160,18 @@
             const service = await server.getPrimaryService(SERVICE_UUID);
             log('Service acquired. Linking characteristics...');
 
-            for (const [id, uuid] of Object.entries(CHARS)) {
-                try {
-                    const char = await service.getCharacteristic(uuid);
-
-                    // FIX 1: Attach listener BEFORE startNotifications()
-                    char.addEventListener('characteristicvaluechanged', (e) => {
-                        handleData(id, e.target.value);
-                    });
-
-                    // FIX 2: startNotifications() always runs — not gated by readValue()
-                    await char.startNotifications();
-                    log(`✓ Notifications active: ${id}`);
-
-                    // FIX 3: readValue() is isolated — failure won't break notifications
-                    try {
-                        const initVal = await char.readValue();
-                        handleData(id, initVal);
-                    } catch (readErr) {
-                        log(`${id}: initial read skipped (${readErr.message})`);
-                    }
-
-                    // Small delay between characteristic setups for stability
-                    await new Promise(r => setTimeout(r, 150));
-
-                } catch (charErr) {
-                    log(`✗ Error on ${id}: ${charErr.message}`);
-                }
+            // Subscribe individual characteristics
+            for (const [id, uuid] of Object.entries(SINGLE_CHARS)) {
+                await subscribeChar(service, id, uuid, (buf) => handleSingle(id, buf));
+                await new Promise(r => setTimeout(r, 100));
             }
+
+            // Subscribe single mmWave characteristic
+            await subscribeChar(service, 'mmWave', UUID_MMWAVE, handleMmwave);
 
             btn.innerText = 'Connected ✓';
             log('All characteristics linked. Live data active.');
 
-            // Handle unexpected disconnection
             device.addEventListener('gattserverdisconnected', () => {
                 log('Device disconnected!');
                 btn.disabled = false;
