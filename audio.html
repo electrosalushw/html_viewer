@@ -3,94 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Urinfo Advanced Dashboard</title>
+    <title>Urinfo Stable Dashboard</title>
     <style>
-        :root { 
-            --bg: #0a0c10; --panel: #111318; --accent: #00e5b0; 
-            --text: #e8eaf0; --muted: #4a5068; --error: #ff4d4d;
-        }
-        body { 
-            background: var(--bg); color: var(--text); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0;
-        }
-        .container { width: 100%; max-width: 900px; display: flex; flex-direction: column; align-items: center; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; width: 100%; margin-top: 20px; }
-        .card { 
-            background: var(--panel); border: 1px solid #1e2128; padding: 25px; 
-            border-radius: 15px; text-align: center; transition: 0.3s;
-        }
-        .card:hover { border-color: var(--accent); box-shadow: 0 0 15px rgba(0,229,176,0.1); }
-        .mmwave-group { 
-            grid-column: 1 / -1; background: rgba(0,229,176,0.03); 
-            border: 1px solid rgba(0,229,176,0.2); border-radius: 20px; padding: 20px;
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px;
-        }
-        .group-label { grid-column: 1/-1; color: var(--accent); font-weight: bold; font-size: 0.9rem; margin-bottom: 10px; text-align: left; }
-        .value { font-size: 2.5rem; font-weight: bold; color: var(--accent); margin: 5px 0; }
-        .unit { font-size: 1rem; color: var(--muted); margin-left: 5px; }
-        .label { font-size: 0.75rem; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; }
-        button { 
-            padding: 15px 40px; border-radius: 10px; border: 2px solid var(--accent); 
-            background: transparent; color: var(--accent); cursor: pointer; 
-            font-weight: bold; font-size: 1.1rem; transition: 0.3s; margin-bottom: 20px;
-        }
-        button:hover { background: var(--accent); color: var(--bg); }
-        button:disabled { border-color: var(--muted); color: var(--muted); cursor: not-allowed; }
-        #log { font-family: monospace; font-size: 0.85rem; color: var(--muted); background: #000; padding: 10px; border-radius: 5px; width: 100%; margin-top: 20px; min-height: 40px; }
+        :root { --bg: #0d1117; --card: #161b22; --accent: #58a6ff; --text: #c9d1d9; }
+        body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; width: 100%; max-width: 800px; }
+        .card { background: var(--card); border: 1px solid #30363d; padding: 20px; border-radius: 10px; text-align: center; }
+        .value { font-size: 2rem; font-weight: bold; color: #39d353; }
+        .label { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; margin-bottom: 10px; }
+        button { padding: 15px 30px; background: #238636; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 20px; }
+        #debug { width: 100%; max-width: 800px; height: 150px; background: black; color: #39d353; font-family: monospace; font-size: 0.8rem; padding: 10px; overflow-y: scroll; margin-top: 20px; border-radius: 5px; border: 1px solid #333; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h1>Urinfo Sensor Suite</h1>
-        <button id="btnConnect" onclick="connectBLE()">CONNECT TO URINFO</button>
+    <h1>Urinfo System</h1>
+    <button id="btnConnect" onclick="startBLE()">Connect Device</button>
 
-        <div class="grid">
-            <div class="card">
-                <div class="label">Battery</div>
-                <div class="value"><span id="valBat">--</span><span class="unit">%</span></div>
-            </div>
-            <div class="card">
-                <div class="label">Ambient Light</div>
-                <div class="value"><span id="valLux">--</span><span class="unit">lx</span></div>
-            </div>
-            <div class="card">
-                <div class="label">PIR Status</div>
-                <div class="value"><span id="valPir">--</span></div>
-            </div>
-
-            <div class="mmwave-group">
-                <div class="group-label">MMWAVE RADAR DATA</div>
-                <div class="card">
-                    <div class="label">Moving Dist</div>
-                    <div class="value" id="valMDist">--</div>
-                </div>
-                <div class="card">
-                    <div class="label">Moving Energy</div>
-                    <div class="value" id="valMEnrg">--</div>
-                </div>
-                <div class="card">
-                    <div class="label">Static Dist</div>
-                    <div class="value" id="valSDist">--</div>
-                </div>
-                <div class="card">
-                    <div class="label">Static Energy</div>
-                    <div class="value" id="valSEnrg">--</div>
-                </div>
-                <div class="card">
-                    <div class="label">Detection Dist</div>
-                    <div class="value" id="valDDist">--</div>
-                </div>
-            </div>
-        </div>
-
-        <div id="log">Status: Disconnected</div>
+    <div class="grid">
+        <div class="card"><div class="label">Battery</div><div class="value"><span id="valBat">--</span>%</div></div>
+        <div class="card"><div class="label">Lux</div><div class="value" id="valLux">--</div></div>
+        <div class="card"><div class="label">PIR</div><div class="value" id="valPir">--</div></div>
+        <div class="card"><div class="label">M-Dist</div><div class="value" id="valMDist">--</div></div>
+        <div class="card"><div class="label">M-Enrg</div><div class="value" id="valMEnrg">--</div></div>
+        <div class="card"><div class="label">S-Dist</div><div class="value" id="valSDist">--</div></div>
+        <div class="card"><div class="label">S-Enrg</div><div class="value" id="valSEnrg">--</div></div>
+        <div class="card"><div class="label">Detect</div><div class="value" id="valDDist">--</div></div>
     </div>
 
+    <div id="debug">System Log: Ready...</div>
+
 <script>
-    // These MUST match your ble.h exactly
+    // CRITICAL: Ensure these match your ESP32 code EXACTLY
     const SERVICE_UUID = '11111111-1111-1111-1111-111111111110';
-    const CHAR_MAP = {
+    const CHARS = {
         'valBat':   '11111111-1111-1111-2222-111111111112',
         'valLux':   '11111111-1111-1111-2222-111111111113',
         'valPir':   '11111111-1111-1111-2222-111111111114',
@@ -101,84 +47,56 @@
         'valDDist': '11111111-1111-1111-2222-111111111119'
     };
 
-    let bleDevice = null;
-    const decoder = new TextDecoder();
-
-    function updateLog(msg, isError = false) {
-        const log = document.getElementById('log');
-        log.style.color = isError ? "var(--error)" : "var(--muted)";
-        log.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    function log(msg) {
+        const d = document.getElementById('debug');
+        d.innerHTML += `> ${msg}<br>`;
+        d.scrollTop = d.scrollHeight;
     }
 
-    async function connectBLE() {
+    async function startBLE() {
         try {
-            updateLog("Requesting Device...");
-            bleDevice = await navigator.bluetooth.requestDevice({
+            log("Searching for Urinfo...");
+            const device = await navigator.bluetooth.requestDevice({
                 filters: [{ name: 'Urinfo' }],
                 optionalServices: [SERVICE_UUID]
             });
 
-            updateLog("Connecting to GATT Server...");
-            const server = await bleDevice.gatt.connect();
+            log("Connecting...");
+            const server = await device.gatt.connect();
 
-            updateLog("Getting Primary Service...");
+            log("Fetching Service...");
             const service = await server.getPrimaryService(SERVICE_UUID);
 
-            document.getElementById('btnConnect').disabled = true;
-            document.getElementById('btnConnect').innerText = "LINKED";
-
-            // Initialize each characteristic
-            for (const [elementId, uuid] of Object.entries(CHAR_MAP)) {
+            // Using a loop with a small delay to prevent GATT collision
+            for (let [id, uuid] of Object.entries(CHARS)) {
                 try {
+                    log(`Linking ${id}...`);
                     const char = await service.getCharacteristic(uuid);
                     
-                    // 1. Initial Read (Gets the value even if it's not changing)
-                    const val = await char.readValue();
-                    processData(elementId, val);
-
-                    // 2. Start Notifications for future updates
+                    // Start notifications
                     await char.startNotifications();
-                    char.addEventListener('characteristicvaluechanged', (event) => {
-                        processData(elementId, event.target.value);
+                    char.addEventListener('characteristicvaluechanged', (e) => {
+                        let raw = new TextDecoder().decode(e.target.value);
+                        // Strips everything except numbers and dots
+                        let clean = raw.replace(/[^0-9.]/g, '');
+                        document.getElementById(id).innerText = clean;
                     });
 
-                    updateLog(`Loaded: ${elementId}`);
-                } catch (charErr) {
-                    console.error(`Error on ${elementId}:`, charErr);
-                    updateLog(`Fail: ${elementId}`, true);
+                    // Immediate initial read
+                    const initData = await char.readValue();
+                    let initVal = new TextDecoder().decode(initData).replace(/[^0-9.]/g, '');
+                    document.getElementById(id).innerText = initVal;
+
+                    // Small pause between characteristics helps stability
+                    await new Promise(r => setTimeout(r, 150)); 
+                } catch (e) {
+                    log(`Error on ${id}: ${e.message}`);
                 }
             }
-            updateLog("System Online. All sensors active.");
-
-        } catch (error) {
-            updateLog(`Error: ${error.message}`, true);
-            document.getElementById('btnConnect').disabled = false;
-            document.getElementById('btnConnect').innerText = "RETRY CONNECTION";
+            log("Done! All sensors connected.");
+        } catch (err) {
+            log(`FATAL ERROR: ${err.message}`);
         }
-    }
-
-    function processData(id, DataView) {
-        let text = decoder.decode(DataView);
-        // Clean the string (remove null terminators and non-numeric junk)
-        let clean = text.replace(/[^0-9.]/g, ''); 
-        
-        // Special formatting for PIR (0-4095 to Text)
-        if (id === 'valPir') {
-            const pirVal = parseInt(clean);
-            document.getElementById(id).textContent = pirVal > 100 ? "MOTION" : "IDLE";
-            document.getElementById(id).style.color = pirVal > 100 ? "var(--accent)" : "var(--muted)";
-        } else {
-            document.getElementById(id).textContent = clean || "0";
-        }
-    }
-
-    // Handle sudden disconnects
-    if (bleDevice) {
-        bleDevice.addEventListener('gattserverdisconnected', () => {
-            updateLog("Device Disconnected!", true);
-            document.getElementById('btnConnect').disabled = false;
-            document.getElementById('btnConnect').innerText = "RECONNECT";
-        });
     }
 </script>
 </body>
