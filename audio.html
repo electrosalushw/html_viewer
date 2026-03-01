@@ -3,95 +3,77 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Urinfo BLE Dashboard</title>
+    <title>Urinfo Advanced Dashboard</title>
     <style>
-        :root {
-            --bg: #0a0c10; --panel: #111318; --accent: #00e5b0;
-            --text: #e8eaf0; --muted: #4a5068;
-        }
-        body {
-            background: var(--bg); color: var(--text); font-family: sans-serif;
-            display: flex; flex-direction: column; align-items: center; padding: 50px;
-        }
-        .card {
-            background: var(--panel); border: 1px solid #1e2128; padding: 40px;
-            border-radius: 20px; text-align: center; width: 280px; margin-top: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
-        .value { font-size: 4rem; font-weight: bold; color: var(--accent); margin: 10px 0; }
-        .label { font-size: 0.8rem; color: var(--muted); letter-spacing: 2px; }
-        button {
-            padding: 15px 40px; border-radius: 12px; border: 1px solid var(--accent);
-            background: transparent; color: var(--accent); cursor: pointer;
-            font-weight: bold; transition: 0.3s;
-        }
-        button:hover { background: rgba(0,229,176,0.1); box-shadow: 0 0 15px rgba(0,229,176,0.2); }
-        #log { margin-top: 30px; font-family: monospace; font-size: 0.8rem; color: var(--muted); }
+        :root { --bg: #0a0c10; --panel: #111318; --accent: #00e5b0; --text: #e8eaf0; --muted: #4a5068; }
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; width: 100%; max-width: 800px; margin-top: 20px; }
+        .card { background: var(--panel); border: 1px solid #1e2128; padding: 20px; border-radius: 15px; text-align: center; }
+        .mmwave-section { grid-column: 1 / -1; background: #161a21; border: 1px dashed var(--accent); padding: 20px; border-radius: 15px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; }
+        .value { font-size: 2rem; font-weight: bold; color: var(--accent); }
+        .label { font-size: 0.7rem; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+        button { padding: 12px 30px; border-radius: 8px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; font-weight: bold; }
+        #log { margin-top: 20px; font-size: 0.8rem; color: var(--muted); }
     </style>
 </head>
 <body>
 
-    <h1>Urinfo Monitor</h1>
-    <button id="btnConnect" onclick="toggleConnect()">Connect to Device</button>
+    <h1>Urinfo Multi-Sensor</h1>
+    <button id="btnConnect" onclick="toggleConnect()">Connect to Urinfo</button>
 
-    <div class="card">
-        <div class="label">BATTERY LEVEL</div>
-        <div class="value"><span id="valBattery">--</span>%</div>
+    <div class="grid">
+        <div class="card"><div class="label">Battery</div><div class="value"><span id="valBat">--</span>%</div></div>
+        <div class="card"><div class="label">Light (Lux)</div><div class="value"><span id="valLux">--</span></div></div>
+        <div class="card"><div class="label">PIR Raw</div><div class="value"><span id="valPir">--</span></div></div>
+
+        <div class="mmwave-section">
+            <div style="grid-column: 1/-1; color: var(--accent); font-weight: bold; margin-bottom: 10px;">mmWave Radar Data</div>
+            <div class="card"><div class="label">Move Dist</div><div class="value" id="valMDist">--</div></div>
+            <div class="card"><div class="label">Move Energy</div><div class="value" id="valMEnrg">--</div></div>
+            <div class="card"><div class="label">Stat Dist</div><div class="value" id="valSDist">--</div></div>
+            <div class="card"><div class="label">Stat Energy</div><div class="value" id="valSEnrg">--</div></div>
+            <div class="card"><div class="label">Detect Dist</div><div class="value" id="valDDist">--</div></div>
+        </div>
     </div>
 
-    <div id="log">Status: Ready. Click connect.</div>
+    <div id="log">Status: Ready</div>
 
 <script>
     const SERVICE_UUID = '11111111-1111-1111-1111-111111111110';
-    const UUID_BATTERY = '11111111-1111-1111-2222-111111111112';
+    const CHARS = {
+        'valBat':   '11111111-1111-1111-2222-111111111112',
+        'valLux':   '11111111-1111-1111-2222-111111111113',
+        'valPir':   '11111111-1111-1111-2222-111111111114',
+        'valMDist': '11111111-1111-1111-2222-111111111115',
+        'valMEnrg': '11111111-1111-1111-2222-111111111116',
+        'valSDist': '11111111-1111-1111-2222-111111111117',
+        'valSEnrg': '11111111-1111-1111-2222-111111111118',
+        'valDDist': '11111111-1111-1111-2222-111111111119'
+    };
 
     let bleDevice = null;
 
-    function updateLog(msg) {
-        document.getElementById('log').textContent = "Status: " + msg;
-    }
-
     async function toggleConnect() {
-        if (bleDevice && bleDevice.gatt.connected) {
-            await bleDevice.gatt.disconnect();
-            updateLog("Disconnected.");
-            document.getElementById('btnConnect').textContent = "Connect to Device";
-            return;
-        }
-
         try {
-            updateLog("Scanning for Urinfo...");
             bleDevice = await navigator.bluetooth.requestDevice({
                 filters: [{ name: 'Urinfo' }],
                 optionalServices: [SERVICE_UUID]
             });
-
             const server = await bleDevice.gatt.connect();
             const service = await server.getPrimaryService(SERVICE_UUID);
-            const batteryChar = await service.getCharacteristic(UUID_BATTERY);
 
-            updateLog("Connected successfully!");
-            document.getElementById('btnConnect').textContent = "Disconnect";
-
-            // Start Notifications
-           await batteryChar.startNotifications();
-            batteryChar.addEventListener('characteristicvaluechanged', (event) => {
-                // 1. Decode the bytes
-                let rawValue = new TextDecoder().decode(event.target.value);
-                
-                // 2. Trim any hidden whitespace or null characters
-                let cleanValue = rawValue.trim().replace(/\0/g, ''); 
-                
-                // 3. Update the UI
-                document.getElementById('valBattery').textContent = cleanValue;
-            });
-
-        } catch (error) {
-            updateLog("Error: " + error.message);
-            console.error(error);
-        }
+            // Loop through all characteristics and start notifications
+            for (let id in CHARS) {
+                const char = await service.getCharacteristic(CHARS[id]);
+                await char.startNotifications();
+                char.addEventListener('characteristicvaluechanged', (e) => {
+                    let text = new TextDecoder().decode(e.target.value).replace(/[^0-9.]/g, '');
+                    document.getElementById(id).textContent = text;
+                });
+            }
+            document.getElementById('log').textContent = "Status: Connected to all sensors";
+        } catch (e) { document.getElementById('log').textContent = "Error: " + e.message; }
     }
 </script>
 </body>
 </html>
-
